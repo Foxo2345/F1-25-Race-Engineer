@@ -24,7 +24,7 @@ def load_config():
         "api_url": "https://generativelanguage.googleapis.com/v1beta/openai",
         "ai_model": "gemini-3.1-flash-lite",
         "backup_ai_model": "gemini-3.5-flash",
-        "model_cooldown_seconds": 60,
+        "model_cooldown_seconds": 30,
         "personality": "friendly",
         "voice_name": "alba",
         "custom_voice_path": "",
