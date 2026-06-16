@@ -71,7 +71,7 @@ your API key and changing the model if you want:
   "api_provider": "gemini",
   "api_key": "YOUR_GEMINI_API_KEY_HERE",
   "api_url": "https://generativelanguage.googleapis.com/v1beta/openai",
-  "ai_model": "gemini-2.5-flash",
+  "ai_model": "gemini-3.1-flash-lite",
   "backup_ai_model": "gemini-3.5-flash",
   "model_cooldown_seconds": 60,
   "personality": "friendly",
