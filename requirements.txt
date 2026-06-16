@@ -1,0 +1,6 @@
+pocket-tts
+torch>=2.0.0
+scipy>=1.9.0
+google-genai
+openai
+keyboard
