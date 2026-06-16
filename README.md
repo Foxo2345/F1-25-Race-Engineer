@@ -25,7 +25,6 @@ An AI-powered race engineer for F1 25 that reads live UDP telemetry from the gam
 ### 1. Clone the repository
 
 ```bash
-cd Documents
 git clone https://github.com/Foxo2345/F1-25-Race-Engineer.git
 cd F1-25-Race-Engineer
 ```
