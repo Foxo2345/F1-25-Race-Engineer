@@ -25,6 +25,7 @@ An AI-powered race engineer for F1 25 that reads live UDP telemetry from the gam
 ### 1. Clone the repository
 
 ```bash
+cd Documents
 git clone https://github.com/Foxo2345/F1-25-Race-Engineer.git
 cd F1-25-Race-Engineer
 ```
@@ -73,7 +74,7 @@ your API key and changing the model if you want:
   "api_url": "https://generativelanguage.googleapis.com/v1beta/openai",
   "ai_model": "gemini-3.1-flash-lite",
   "backup_ai_model": "gemini-3.5-flash",
-  "model_cooldown_seconds": 60,
+  "model_cooldown_seconds": 30,
   "personality": "friendly",
   "voice_name": "alba",
   "custom_voice_path": "",

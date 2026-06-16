@@ -2,15 +2,11 @@ import socket
 import threading
 import ctypes as ct
 import traceback
-from telemetry.packets import PacketHeader, PACKET_CLASSES
+from telemetry.packets import PacketHeader, PACKET_CLASSES, EXPECTED_PACKET_SIZES, MAX_CARS
 
 class TelemetryState:
     def __init__(self):
         self.lock = threading.Lock()
-
-        # Identity
-        self.player_car_index = 0
-        self.player_car_index_locked = False
 
         # Telemetry variables
         self.speed = 0  # km/h
@@ -113,39 +109,40 @@ class TelemetryListener:
             self.sock.close()
         print("Telemetry Listener stopped.")
 
+    @staticmethod
+    def _player_index(header):
+        """Return the player car index from the packet header, or None if invalid."""
+        idx = header.m_playerCarIndex
+        if idx >= MAX_CARS:
+            return None
+        return idx
+
     def _listen_loop(self):
         while self.running:
             try:
                 data, addr = self.sock.recvfrom(4096)
-                ct_sizeof_header = 29
-                if len(data) < ct_sizeof_header:
+                if len(data) < ct.sizeof(PacketHeader):
                     continue
 
-                # Parse Header
-                header = PacketHeader.from_buffer_copy(data[:ct_sizeof_header])
+                header = PacketHeader.from_buffer_copy(data[:ct.sizeof(PacketHeader)])
                 packet_id = header.m_packetId
-                player_idx = header.m_playerCarIndex
+                player_idx = self._player_index(header)
+                if player_idx is None:
+                    continue
 
-                # Check if we support this packet type
                 if packet_id not in PACKET_CLASSES:
                     continue
 
-                cls = PACKET_CLASSES[packet_id]
-
-                # Verify length
-                if len(data) < ct.sizeof(cls):
+                expected_size = EXPECTED_PACKET_SIZES.get(packet_id)
+                if expected_size is not None and len(data) < expected_size:
                     continue
 
+                cls = PACKET_CLASSES[packet_id]
                 packet = cls.from_buffer_copy(data)
 
-                # Process the packet and update state
                 with self.state.lock:
-                    if not self.state.player_car_index_locked:
-                        self.state.player_car_index = player_idx
-
                     if packet_id == 2:  # Lap Data
-                        lap_index = self.state.player_car_index if self.state.player_car_index_locked else player_idx
-                        lap_data = packet.m_lapData[lap_index]
+                        lap_data = packet.m_lapData[player_idx]
                         if lap_data.m_carPosition > 0:
                             self.state.car_position = lap_data.m_carPosition
                         if lap_data.m_currentLapNum > 0:
@@ -153,17 +150,18 @@ class TelemetryListener:
                         self.state.lap_distance = lap_data.m_lapDistance
                         self.state.last_lap_time_ms = lap_data.m_lastLapTimeInMS
                         self.state.current_lap_time_ms = lap_data.m_currentLapTimeInMS
-                        self.state.sector1_time_ms = lap_data.m_sector1TimeInMS + (int(lap_data.m_sector1TimeMinutes) * 60000)
-                        self.state.sector2_time_ms = lap_data.m_sector2TimeInMS + (int(lap_data.m_sector2TimeMinutes) * 60000)
+                        self.state.sector1_time_ms = (
+                            lap_data.m_sector1TimeMSPart
+                            + int(lap_data.m_sector1TimeMinutesPart) * 60000
+                        )
+                        self.state.sector2_time_ms = (
+                            lap_data.m_sector2TimeMSPart
+                            + int(lap_data.m_sector2TimeMinutesPart) * 60000
+                        )
                         self.state.sector = lap_data.m_sector
-                        # Lock player index on first valid lap data (position > 0 indicates in-session)
-                        if lap_data.m_carPosition > 0 and not self.state.player_car_index_locked:
-                            self.state.player_car_index = lap_index
-                            self.state.player_car_index_locked = True
 
                     elif packet_id == 6:  # Car Telemetry
-                        telem_index = self.state.player_car_index if self.state.player_car_index_locked else player_idx
-                        telem = packet.m_carTelemetryData[telem_index]
+                        telem = packet.m_carTelemetryData[player_idx]
                         self.state.speed = telem.m_speed
                         self.state.throttle = telem.m_throttle
                         self.state.steer = telem.m_steer
@@ -172,49 +170,42 @@ class TelemetryListener:
                         self.state.engine_rpm = telem.m_engineRPM
                         self.state.drs = telem.m_drs
 
-                        # Arrays
-                        # Mapping order from game: RL, RR, FL, FR (Rear Left, Rear Right, Front Left, Front Right)
-                        # We standardise temperatures: Brakes and Tyres
+                        # Game order: RL, RR, FL, FR -> standardise to FL, FR, RL, RR
                         self.state.brakes_temp = [
-                            telem.m_brakesTemperature[2],  # FL
-                            telem.m_brakesTemperature[3],  # FR
-                            telem.m_brakesTemperature[0],  # RL
-                            telem.m_brakesTemperature[1]   # RR
+                            telem.m_brakesTemperature[2],
+                            telem.m_brakesTemperature[3],
+                            telem.m_brakesTemperature[0],
+                            telem.m_brakesTemperature[1],
                         ]
                         self.state.tyres_surface_temp = [
-                            telem.m_tyresSurfaceTemperature[2],  # FL
-                            telem.m_tyresSurfaceTemperature[3],  # FR
-                            telem.m_tyresSurfaceTemperature[0],  # RL
-                            telem.m_tyresSurfaceTemperature[1]   # RR
+                            telem.m_tyresSurfaceTemperature[2],
+                            telem.m_tyresSurfaceTemperature[3],
+                            telem.m_tyresSurfaceTemperature[0],
+                            telem.m_tyresSurfaceTemperature[1],
                         ]
                         self.state.tyres_inner_temp = [
-                            telem.m_tyresInnerTemperature[2],  # FL
-                            telem.m_tyresInnerTemperature[3],  # FR
-                            telem.m_tyresInnerTemperature[0],  # RL
-                            telem.m_tyresInnerTemperature[1]   # RR
+                            telem.m_tyresInnerTemperature[2],
+                            telem.m_tyresInnerTemperature[3],
+                            telem.m_tyresInnerTemperature[0],
+                            telem.m_tyresInnerTemperature[1],
                         ]
                         self.state.engine_temp = telem.m_engineTemperature
 
                     elif packet_id == 7:  # Car Status
-                        status_index = self.state.player_car_index if self.state.player_car_index_locked else player_idx
-                        status = packet.m_carStatusData[status_index]
-                        if status.m_fuelInTank > 0:
-                            self.state.fuel_in_tank = status.m_fuelInTank
-                        if status.m_fuelRemainingLaps > 0:
-                            self.state.fuel_remaining_laps = status.m_fuelRemainingLaps
+                        status = packet.m_carStatusData[player_idx]
+                        self.state.fuel_in_tank = status.m_fuelInTank
+                        self.state.fuel_remaining_laps = status.m_fuelRemainingLaps
                         self.state.ers_store_energy = status.m_ersStoreEnergy
                         self.state.ers_deploy_mode = status.m_ersDeployMode
 
                     elif packet_id == 10:  # Car Damage
-                        damage_index = self.state.player_car_index if self.state.player_car_index_locked else player_idx
-                        damage = packet.m_carDamageData[damage_index]
-                        # Wear: RL, RR, FL, FR
-                        # We store exactly in game order but can map FL, FR, RL, RR if wanted. Let's keep game's order [RL, RR, FL, FR]
+                        damage = packet.m_carDamageData[player_idx]
+                        # Wear order from game: RL, RR, FL, FR
                         self.state.tyres_wear = [
-                            damage.m_tyresWear[0],  # Rear Left
-                            damage.m_tyresWear[1],  # Rear Right
-                            damage.m_tyresWear[2],  # Front Left
-                            damage.m_tyresWear[3]   # Front Right
+                            damage.m_tyresWear[0],
+                            damage.m_tyresWear[1],
+                            damage.m_tyresWear[2],
+                            damage.m_tyresWear[3],
                         ]
                         self.state.front_left_wing_damage = damage.m_frontLeftWingDamage
                         self.state.front_right_wing_damage = damage.m_frontRightWingDamage
@@ -223,8 +214,7 @@ class TelemetryListener:
                         self.state.gearbox_damage = damage.m_gearBoxDamage
 
             except socket.timeout:
-                pass  # Just timeout to check if self.running is False
+                pass
             except Exception as e:
-                # Log error and keep loop running
                 print(f"Error parsing UDP packet: {e}")
                 traceback.print_exc()
