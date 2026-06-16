@@ -13,6 +13,7 @@ An AI-powered race engineer for F1 25 that reads live UDP telemetry from the gam
 - **Python 3.11.9** (recommended — other versions may work but are untested)
 - **F1 25** on PC or console (with UDP telemetry enabled — see below)
 - A **Gemini or OpenAI API key**
+- I suggest getting a gemini key on **Google AI Studio**.
 - **Linux**: `aplay` must be available (part of `alsa-utils`, pre-installed on most distros)
 - **macOS**: `afplay` (ships with macOS, no action needed)
 - **Windows**: No extra audio tools needed
