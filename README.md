@@ -1,8 +1,8 @@
 # F1 25 AI Race Engineer
 
-> ⚠️ **Work in Progress — This project is unfinished and actively being developed. Expect bugs, missing features, and breaking changes.**
+> **Work in Progress — This project is unfinished and actively being developed. Expect bugs, missing features, and breaking changes.**
 >
-> 🤖 **Vibe coded** — This project is being built with the help of Gemini, Claude, Kimi, and GitHub Copilot. The code quality reflects that. This will remain the case until I learn Python properly, so don't expect clean, idiomatic code throughout.
+> **Vibe coded** — This project is being built with the help of Gemini, Claude, Kimi, and GitHub Copilot. The code quality reflects that. This will remain the case until I learn Python properly, so don't expect clean, idiomatic code throughout.
 
 An AI-powered race engineer for F1 25 that reads live UDP telemetry from the game and speaks radio feedback to you in real time using a local TTS model. It monitors tyre wear, fuel, damage, lap times, and overheating — and responds like a real pit wall engineer.
 
