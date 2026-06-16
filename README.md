@@ -61,7 +61,8 @@ pip install -r requirements.txt
 
 ## Configuration
 
-On the first run, `config.json` is created automatically with default values. Edit it before running:
+On the first run, `config.json` is created automatically with default values. Edit it before running again, putting
+your API key and changing the model if you want:
 
 ```json
 {
@@ -142,6 +143,7 @@ The app will:
 ## What the Engineer Monitors
 
 The engineer automatically triggers spoken radio messages for these events:
+//At the moment though not automatically
 
 - **Lap complete** — summary after every lap
 - **Tyre wear** — alert at every `wear_threshold`% increment (default: 10%, 20%, 30%...)
