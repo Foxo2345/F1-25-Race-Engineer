@@ -143,7 +143,6 @@ The app will:
 ## What the Engineer Monitors
 
 The engineer automatically triggers spoken radio messages for these events:
-//**At the moment though not automatically**//
 
 - **Lap complete** — summary after every lap
 - **Tyre wear** — alert at every `wear_threshold`% increment (default: 10%, 20%, 30%...)
