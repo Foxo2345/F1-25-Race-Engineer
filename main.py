@@ -28,7 +28,7 @@ def load_config():
         "personality": "friendly",
         "voice_name": "alba",
         "custom_voice_path": "",
-        "wear_threshold": 10.0,
+        "wear_threshold": 25.0,
         "temp_threshold_high": 125
     }
 
