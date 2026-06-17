@@ -28,8 +28,8 @@ def load_config():
         "personality": "friendly",
         "voice_name": "alba",
         "custom_voice_path": "",
-        "wear_threshold": 10.0,
-        "temp_threshold_high": 100
+        "wear_threshold": 25.0,
+        "temp_threshold_high": 125
     }
 
     if not os.path.exists(CONFIG_FILE):
@@ -143,7 +143,7 @@ def monitor_loop(listener, ai_client, speech_worker, config):
     while True:
         snapshot = state.get_snapshot()
         # F1 23/24 packets will have format set (like 2023 or 2024)
-        if snapshot["current_lap_num"] > 0 and snapshot["fuel_in_tank"] > 0:
+        if snapshot["current_lap_num"] > 0 and snapshot["speed"] > 0:
             last_processed_lap = snapshot["current_lap_num"]
             # Initialize damage tracking from first real telemetry to avoid false alerts
             last_wing_damage = max(snapshot["front_left_wing_damage"], snapshot["front_right_wing_damage"], snapshot["rear_wing_damage"])

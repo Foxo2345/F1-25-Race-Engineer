@@ -57,7 +57,7 @@ class RaceEngineerAI:
     def _build_system_instruction(self, personality):
         tone_map = {
             "professional": (
-                "calm, concise, and technically precise",
+                "calm, concise, and technically precise, witty and sarcastic",
                 "Use a natural radio style with a little warmth. Do not sound like a checklist."
             ),
             "friendly": (

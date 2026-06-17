@@ -73,12 +73,12 @@ your API key and changing the model if you want:
   "api_url": "https://generativelanguage.googleapis.com/v1beta/openai",
   "ai_model": "gemini-3.1-flash-lite",
   "backup_ai_model": "gemini-3.5-flash",
-  "model_cooldown_seconds": 60,
+  "model_cooldown_seconds": 30,
   "personality": "friendly",
   "voice_name": "alba",
   "custom_voice_path": "",
   "wear_threshold": 10.0,
-  "temp_threshold_high": 100
+  "temp_threshold_high": 125
 }
 ```
 
@@ -143,7 +143,6 @@ The app will:
 ## What the Engineer Monitors
 
 The engineer automatically triggers spoken radio messages for these events:
-//**At the moment though not automatically**//
 
 - **Lap complete** — summary after every lap
 - **Tyre wear** — alert at every `wear_threshold`% increment (default: 10%, 20%, 30%...)
