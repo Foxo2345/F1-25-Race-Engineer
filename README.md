@@ -78,7 +78,7 @@ your API key and changing the model if you want:
   "voice_name": "alba",
   "custom_voice_path": "",
   "wear_threshold": 10.0,
-  "temp_threshold_high": 100
+  "temp_threshold_high": 125
 }
 ```
 
