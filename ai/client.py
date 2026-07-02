@@ -92,11 +92,16 @@ class RaceEngineerAI:
             "- 'Copy that. That lap was slower, reset and go again.'\n"
         )
 
-    def get_engineer_feedback(self, telemetry, event_type, event_details=None):
+    def get_engineer_feedback(self, telemetry, event_type, event_details=None, lap_tracker=None):
         """
         Formats the current telemetry snapshot and event, sends it to the AI, and returns the spoken feedback.
         """
-        prompt = self._build_prompt(telemetry, event_type, event_details)
+        # Build lap history context from the tracker
+        lap_context = ""
+        if lap_tracker:
+            lap_context = lap_tracker.get_summary()
+
+        prompt = self._build_prompt(telemetry, event_type, event_details, lap_context)
 
         if self.provider == "gemini" and self.client:
             try:
@@ -228,7 +233,7 @@ class RaceEngineerAI:
 
         return "Copy that."
 
-    def _build_prompt(self, telemetry, event_type, event_details):
+    def _build_prompt(self, telemetry, event_type, event_details, lap_context=""):
         """
         Creates a clean structured telemetry snapshot prompt for the AI.
         """
@@ -252,10 +257,19 @@ class RaceEngineerAI:
         tyres_wear_str = ", ".join([f"{w:.1f}%" for w in telemetry['tyres_wear']])
         tyres_surf_temp_str = ", ".join([f"{t}C" for t in telemetry['tyres_surface_temp']])
 
+        # Build lap history section
+        lap_history_section = ""
+        if lap_context:
+            lap_history_section = (
+                f"\n--- LAP HISTORY & PERFORMANCE ---\n"
+                f"{lap_context}\n"
+            )
+
         prompt = (
             f"Event: {event_type.upper()}\n"
             f"Details: {event_details if event_details else 'None'}\n"
-            f"Car Telemetry Snapshot:\n"
+            f"{lap_history_section}"
+            f"\n--- CURRENT CAR TELEMETRY ---\n"
             f"- Mandatory status fields: Lap {telemetry['current_lap_num']}, Position P{telemetry['car_position']}, {fuel_line}\n"
             f"- Current Lap Time: {curr_lap_display}, Last Lap Time: {last_lap_display}, Delta: {lap_delta_display}\n"
             f"- Speed: {telemetry['speed']} km/h, Gear: {telemetry['gear']}, RPM: {telemetry['engine_rpm']}\n"
@@ -267,7 +281,7 @@ class RaceEngineerAI:
             f"- ERS Energy Store: {telemetry['ers_store_energy']/1e6:.2f} MJ\n"
             f"- Damage - Front Left Wing: {telemetry['front_left_wing_damage']}%, Front Right Wing: {telemetry['front_right_wing_damage']}%, Rear Wing: {telemetry['rear_wing_damage']}%\n"
             f"- Damage - Engine: {telemetry['engine_damage']}%, Gearbox: {telemetry['gearbox_damage']}%\n\n"
-            f"Respond to the driver according to the Event. Be concise."
+            f"Respond to the driver according to the Event. Use the lap history to provide context. If they just set a PB, acknowledge it. If they are consistent, keep it brief. Be concise."
         )
         return prompt
 

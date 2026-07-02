@@ -9,6 +9,7 @@ try:
 except ImportError:
     KEYBOARD_AVAILABLE = False
 from telemetry.listener import TelemetryListener
+from telemetry.lap_tracker import LapTracker
 from tts.engine import TextToSpeech
 from tts.worker import SpeechWorker
 from ai.client import RaceEngineerAI
@@ -54,7 +55,7 @@ def load_config():
 
     return config
 
-def request_status_update(listener, ai_client, speech_worker, user_question=None):
+def request_status_update(listener, ai_client, speech_worker, lap_tracker, user_question=None):
     """Triggers a manual status update or answers a typed race question."""
     try:
         if user_question:
@@ -75,12 +76,12 @@ def request_status_update(listener, ai_client, speech_worker, user_question=None
               f"Engine={snapshot['engine_damage']}% Gearbox={snapshot['gearbox_damage']}%")
 
         event_details = user_question if user_question else "Manual status update requested."
-        feedback = ai_client.get_engineer_feedback(snapshot, "manual_status", event_details)
+        feedback = ai_client.get_engineer_feedback(snapshot, "manual_status", event_details, lap_tracker)
         speech_worker.speak(feedback)
     except Exception as e:
         print(f"[Race Engineer] Error during request: {e}")
 
-def hotkey_listener(listener, ai_client, speech_worker):
+def hotkey_listener(listener, ai_client, speech_worker, lap_tracker):
     """Listens for the Numlock global hotkey to trigger a status update from anywhere."""
     if not KEYBOARD_AVAILABLE:
         print("[Hotkey] 'keyboard' library not installed. Global hotkey disabled.")
@@ -90,7 +91,7 @@ def hotkey_listener(listener, ai_client, speech_worker):
         # Run in a separate thread so the hotkey handler returns immediately
         t = threading.Thread(
             target=request_status_update,
-            args=(listener, ai_client, speech_worker),
+            args=(listener, ai_client, speech_worker, lap_tracker),
             daemon=True
         )
         t.start()
@@ -99,7 +100,7 @@ def hotkey_listener(listener, ai_client, speech_worker):
     print("[Hotkey] Press [Num Lock] anywhere to request a status update.")
     keyboard.wait()  # Block this thread, keeping hotkeys active
 
-def console_input_loop(listener, ai_client, speech_worker):
+def console_input_loop(listener, ai_client, speech_worker, lap_tracker):
     """Listens for console input to trigger a manual status update or answer a question."""
     print("----------------------------------------------------------------")
     print("Type a race question and press Enter to ask it.")
@@ -116,13 +117,13 @@ def console_input_loop(listener, ai_client, speech_worker):
 
             user_input = line.strip()
             if user_input:
-                request_status_update(listener, ai_client, speech_worker, user_input)
+                request_status_update(listener, ai_client, speech_worker, lap_tracker, user_input)
             else:
-                request_status_update(listener, ai_client, speech_worker)
+                request_status_update(listener, ai_client, speech_worker, lap_tracker)
         except (KeyboardInterrupt, EOFError):
             break
 
-def monitor_loop(listener, ai_client, speech_worker, config):
+def monitor_loop(listener, ai_client, speech_worker, config, lap_tracker):
     """Monitors telemetry state at 1Hz and triggers AI engineer alerts for events."""
     state = listener.state
 
@@ -138,6 +139,12 @@ def monitor_loop(listener, ai_client, speech_worker, config):
     temp_warned = False
     fuel_warned = False
 
+    # Previous-tick sector times — used to capture correct sectors for a finished lap.
+    # When a new lap is detected, the current snapshot's sector times already belong to
+    # the NEW in-progress lap. The previous tick's values are the ones from the finished lap.
+    prev_sector1_ms = 0
+    prev_sector2_ms = 0
+
     # Wait for the first telemetry packet to establish initial state
     print("Waiting for game telemetry stream...")
     while True:
@@ -152,6 +159,9 @@ def monitor_loop(listener, ai_client, speech_worker, config):
             max_wear = max(snapshot["tyres_wear"])
             wear_threshold = config.get("wear_threshold", 10.0)
             last_wear_alert_level = (max_wear // wear_threshold) * wear_threshold
+            # Initialize previous-tick sector times
+            prev_sector1_ms = snapshot["sector1_time_ms"]
+            prev_sector2_ms = snapshot["sector2_time_ms"]
             print("First telemetry packet received. Connection established!")
             speech_worker.speak("Radio check. Connection established. Let's get to work.")
             break
@@ -165,12 +175,39 @@ def monitor_loop(listener, ai_client, speech_worker, config):
 
             # 1. Lap Complete Event
             curr_lap = snapshot["current_lap_num"]
-            if curr_lap > last_processed_lap:
-                # Trigger lap review
-                print(f"[Event] Lap completed. Old Lap: {last_processed_lap}, New Lap: {curr_lap}")
+
+            # Detect session restart (lap number went backwards)
+            if curr_lap < last_processed_lap:
+                print(f"[Event] Session restart detected (lap {last_processed_lap} -> {curr_lap}). Resetting lap tracker.")
+                lap_tracker.reset()
                 last_processed_lap = curr_lap
-                feedback = ai_client.get_engineer_feedback(snapshot, "lap_complete", f"Completed lap {curr_lap - 1}.")
+                prev_sector1_ms = snapshot["sector1_time_ms"]
+                prev_sector2_ms = snapshot["sector2_time_ms"]
+                continue
+
+            if curr_lap > last_processed_lap:
+                finished_lap_num = curr_lap - 1
+                finished_lap_time = snapshot["last_lap_time_ms"]
+
+                # Use previous-tick sector times (they belonged to the finished lap)
+                is_new_pb = lap_tracker.record_lap(
+                    finished_lap_num, finished_lap_time, prev_sector1_ms, prev_sector2_ms
+                )
+
+                from telemetry.lap_tracker import format_lap_time
+                pb_note = " (NEW PB!)" if is_new_pb else ""
+                print(f"[Event] Lap {finished_lap_num} completed: {format_lap_time(finished_lap_time)}{pb_note}")
+
+                last_processed_lap = curr_lap
+                event_details = f"Completed lap {finished_lap_num}."
+                if is_new_pb:
+                    event_details += " New personal best!"
+                feedback = ai_client.get_engineer_feedback(snapshot, "lap_complete", event_details, lap_tracker)
                 speech_worker.speak(feedback)
+
+                # Reset prev sectors for the new lap
+                prev_sector1_ms = snapshot["sector1_time_ms"]
+                prev_sector2_ms = snapshot["sector2_time_ms"]
                 continue  # Skip checking other alerts on same tick to prevent overlapping audio
 
             # 2. Damage Alert Event
@@ -181,7 +218,7 @@ def monitor_loop(listener, ai_client, speech_worker, config):
                 diff = curr_wing_dmg - last_wing_damage
                 last_wing_damage = curr_wing_dmg
                 print(f"[Event] Aerodynamic damage increase: +{diff}%")
-                feedback = ai_client.get_engineer_feedback(snapshot, "damage_alert", f"Wing damage increased by {diff}%. Current wing damage: {curr_wing_dmg}%.")
+                feedback = ai_client.get_engineer_feedback(snapshot, "damage_alert", f"Wing damage increased by {diff}%. Current wing damage: {curr_wing_dmg}%.", lap_tracker)
                 speech_worker.speak(feedback)
                 continue
 
@@ -189,7 +226,7 @@ def monitor_loop(listener, ai_client, speech_worker, config):
                 diff = curr_mech_dmg - last_mech_damage
                 last_mech_damage = curr_mech_dmg
                 print(f"[Event] Mechanical wear increase: +{diff}%")
-                feedback = ai_client.get_engineer_feedback(snapshot, "damage_alert", f"Mechanical engine or gearbox wear increased by {diff}%. Current mechanical damage: {curr_mech_dmg}%.")
+                feedback = ai_client.get_engineer_feedback(snapshot, "damage_alert", f"Mechanical engine or gearbox wear increased by {diff}%. Current mechanical damage: {curr_mech_dmg}%.", lap_tracker)
                 speech_worker.speak(feedback)
                 continue
 
@@ -207,7 +244,7 @@ def monitor_loop(listener, ai_client, speech_worker, config):
             if current_wear_level > last_wear_alert_level:
                 last_wear_alert_level = current_wear_level
                 print(f"[Event] Tyre wear crossed warning level: {max_wear:.1f}%")
-                feedback = ai_client.get_engineer_feedback(snapshot, "tyre_wear_alert", f"Maximum tyre wear reached {max_wear:.1f}%.")
+                feedback = ai_client.get_engineer_feedback(snapshot, "tyre_wear_alert", f"Maximum tyre wear reached {max_wear:.1f}%.", lap_tracker)
                 speech_worker.speak(feedback)
                 continue
 
@@ -217,7 +254,7 @@ def monitor_loop(listener, ai_client, speech_worker, config):
             if max_temp > temp_limit and not temp_warned:
                 temp_warned = True
                 print(f"[Event] Tyre surface overheating: {max_temp}C")
-                feedback = ai_client.get_engineer_feedback(snapshot, "overheating_alert", f"Tyres are overheating. Surface temp reading {max_temp}C.")
+                feedback = ai_client.get_engineer_feedback(snapshot, "overheating_alert", f"Tyres are overheating. Surface temp reading {max_temp}C.", lap_tracker)
                 speech_worker.speak(feedback)
             elif max_temp < (temp_limit - 10):  # Hysteresis (cool down by 10C before resetting warning)
                 temp_warned = False
@@ -227,10 +264,14 @@ def monitor_loop(listener, ai_client, speech_worker, config):
             if remaining_laps <= 1.5 and not fuel_warned:
                 fuel_warned = True
                 print(f"[Event] Critical fuel: {remaining_laps:.2f} laps remaining")
-                feedback = ai_client.get_engineer_feedback(snapshot, "fuel_warning", f"Fuel is low. {remaining_laps:.2f} laps left.")
+                feedback = ai_client.get_engineer_feedback(snapshot, "fuel_warning", f"Fuel is low. {remaining_laps:.2f} laps left.", lap_tracker)
                 speech_worker.speak(feedback)
             elif remaining_laps >= 2.0:
                 fuel_warned = False
+
+            # Cache current sector times for next tick (used when detecting lap completion)
+            prev_sector1_ms = snapshot["sector1_time_ms"]
+            prev_sector2_ms = snapshot["sector2_time_ms"]
 
         except Exception as e:
             print(f"Error in monitor loop: {e}")
@@ -239,6 +280,9 @@ def monitor_loop(listener, ai_client, speech_worker, config):
 def main():
     print("Initializing F1 25 AI Race Engineer...")
     config = load_config()
+
+    # Initialize Lap Tracker
+    lap_tracker = LapTracker()
 
     # 1. Initialize Speech Synthesis Module
     tts = TextToSpeech(voice_name=config["voice_name"], custom_voice_path=config["custom_voice_path"])
@@ -269,7 +313,7 @@ def main():
     # 4. Start Monitoring Thread
     monitor_thread = threading.Thread(
         target=monitor_loop,
-        args=(listener, ai_client, speech_worker, config),
+        args=(listener, ai_client, speech_worker, config, lap_tracker),
         daemon=True
     )
     monitor_thread.start()
@@ -277,14 +321,14 @@ def main():
     # 5. Start global hotkey listener thread (Numlock)
     hotkey_thread = threading.Thread(
         target=hotkey_listener,
-        args=(listener, ai_client, speech_worker),
+        args=(listener, ai_client, speech_worker, lap_tracker),
         daemon=True
     )
     hotkey_thread.start()
 
     # 6. Start console loop for keyboard triggers (Blocks main thread)
     try:
-        console_input_loop(listener, ai_client, speech_worker)
+        console_input_loop(listener, ai_client, speech_worker, lap_tracker)
     except KeyboardInterrupt:
         print("Shutting down AI Race Engineer...")
     finally:
